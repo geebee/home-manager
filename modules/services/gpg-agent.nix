@@ -40,9 +40,10 @@ let
   hexStringToBase32 = let
     mod = a: b: a - a / b * b;
     pow2 = elemAt [ 1 2 4 8 16 32 64 128 256 ];
-    splitChars = s: init (tail (splitString "" s));
+    # splitChars = s: init (tail (splitString "" s));
 
-    base32Alphabet = splitChars "ybndrfg8ejkmcpqxot1uwisza345h769";
+    # base32Alphabet = splitChars "ybndrfg8ejkmcpqxot1uwisza345h769";
+    base32Alphabet = pkgs.lib.stringToCharacters "ybndrfg8ejkmcpqxot1uwisza345h769";
     hexToIntTable = listToAttrs (genList (x: {
       name = toLower (toHexString x);
       value = x;
@@ -68,7 +69,8 @@ let
         buf = buf';
         bufBits = bufBits';
       };
-  in hexString: (foldl' go initState (splitChars hexString)).ret;
+  in hexString: (foldl' go initState (pkgs.lib.stringToCharacters hexString)).ret;
+  # in hexString: (foldl' go initState (splitChars hexString)).ret;
 
 in {
   meta.maintainers = [ maintainers.rycee ];
@@ -262,7 +264,7 @@ in {
     #   ${gpgPkg}/share/doc/gnupg/examples/systemd-user
     #
     # directory.
-    {
+    (mkIf pkgs.stdenv.isLinux {
       systemd.user.services.gpg-agent = {
         Unit = {
           Description = "GnuPG cryptographic agent and passphrase cache";
@@ -296,7 +298,36 @@ in {
 
         Install = { WantedBy = [ "sockets.target" ]; };
       };
-    }
+    })
+
+    (mkIf pkgs.stdenv.isDarwin {
+      launchd.agents.gpg-agent = {
+        enable = true;
+
+        config = {
+          Label = "gnupg-agent";
+
+          ProgramArguments = [
+            "${gpgPkg}/bin/gpg-agent"
+            "--supervised"
+            "--verbose"
+          # ];
+          ] ++ pkgs.lib.lists.optional cfg.verbose "--verbose";
+
+          EnvironmentVariables = {
+            GNUPGHOME= homedir;
+          };
+
+          Sockets = {
+            "gpg-agent" = {
+              SockPathMode = 384; # 0600 converted to decimal
+              SockPathName = ./. + (gpgconf "S.gpg-agent");
+              SockType = "stream";
+            };
+          };
+        };
+      };
+    })
 
     (mkIf cfg.enableSshSupport {
       systemd.user.sockets.gpg-agent-ssh = {
